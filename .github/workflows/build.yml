@@ -34,39 +34,24 @@ jobs:
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager --version
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses || true
 
-      - name: Locate Android project
-        run: |
-          set -e
-          GRADLE_FILE=$(find project -type f -name gradlew -print -quit)
-
-          if [ -z "$GRADLE_FILE" ]; then
-            echo "ERROR: gradlew not found in ZIP"
-            find project -maxdepth 5 -type f | head -200
-            exit 1
-          fi
-
-          PROJECT_DIR=$(dirname "$GRADLE_FILE")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Project found: $PROJECT_DIR"
-
-      - name: Make Gradle executable
-        run: chmod +x "$PROJECT_DIR/gradlew"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
       - name: Build APK
-        run: |
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon assembleDebug
+        working-directory: project/MyLiveWallpaper
+        run: gradle --no-daemon assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: MyLiveWallpaper-APK
-          path: project/**/build/outputs/apk/debug/*.apk
+          path: project/MyLiveWallpaper/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7
