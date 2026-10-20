@@ -39,6 +39,13 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses || true
 
+      - name: Replace Java file with corrected version
+        run: |
+          set -e
+          DEST="project/MyLiveWallpaper/app/src/main/java/com/nik/mylivewallpaper"
+          mkdir -p "$DEST"
+          cp project/MyLiveWallpaper/app/src/main/java/com/nik/mylivewallpaper/VideoWallpaperService.java "$DEST/VideoWallpaperService.java"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
