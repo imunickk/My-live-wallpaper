@@ -1,4 +1,3 @@
-
 name: Build My Live Wallpaper APK
 
 on:
@@ -39,30 +38,36 @@ jobs:
           p = pathlib.Path(sys.argv[1])
           s = p.read_text()
 
-          # WallpaperService.Engine manages its own surface callbacks.
+          # Engine manages its own surface lifecycle callbacks.
           s = re.sub(
               r'extends\s+Engine\s+implements\s+SurfaceHolder\.Callback',
               'extends Engine',
               s
           )
 
-          # Remove explicit callback registration on Engine.
+          # Remove addCallback(this), including when it appears
+          # inline inside the VideoEngine constructor.
           s = re.sub(
-              r'(?m)^\s*getSurfaceHolder\(\)\.addCallback\(this\)\s*;?\s*$',
+              r'getSurfaceHolder\(\)\s*\.addCallback\s*\(\s*this\s*\)\s*;?',
               '',
               s
           )
 
-          # Convert legacy callback method names to Engine callback names.
+          # Convert legacy SurfaceHolder.Callback method names.
           s = re.sub(r'\bsurfaceCreated\s*\(', 'onSurfaceCreated(', s)
           s = re.sub(r'\bsurfaceChanged\s*\(', 'onSurfaceChanged(', s)
           s = re.sub(r'\bsurfaceDestroyed\s*\(', 'onSurfaceDestroyed(', s)
 
           p.write_text(s)
-          print("Updated wallpaper surface callbacks.")
+
+          if re.search(r'getSurfaceHolder\(\)\s*\.addCallback\s*\(\s*this\s*\)', s):
+              raise SystemExit("ERROR: addCallback(this) was not removed")
+
+          print("Wallpaper callback patch completed.")
           PY
 
-          grep -nE 'class VideoEngine|addCallback|onSurfaceCreated|onSurfaceChanged|onSurfaceDestroyed' "$FILE"
+          echo "Checking patched source:"
+          grep -nE 'class VideoEngine|addCallback|surfaceDestroyed|onSurfaceDestroyed' "$FILE" || true
 
       - name: Set up Java
         uses: actions/setup-java@v5
