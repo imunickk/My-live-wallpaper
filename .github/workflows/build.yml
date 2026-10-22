@@ -1,3 +1,4 @@
+
 name: Build My Live Wallpaper APK
 
 on:
@@ -23,6 +24,37 @@ jobs:
           mkdir -p project
           unzip -o MyLiveWallpaper-AndroidStudio-Project.zip -d project
 
+      - name: Fix VideoWallpaperService callbacks
+        run: |
+          set -e
+          FILE="$(find project -type f -name VideoWallpaperService.java -print -quit)"
+          test -n "$FILE"
+          echo "Fixing $FILE"
+
+          python3 - "$FILE" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          p = pathlib.Path(sys.argv[1])
+          s = p.read_text()
+
+          s = re.sub(
+              r'extends\s+Engine\s+implements\s+SurfaceHolder\.Callback',
+              'extends Engine',
+              s
+          )
+
+          s = re.sub(r'\bsurfaceCreated\s*\(', 'onSurfaceCreated(', s)
+          s = re.sub(r'\bsurfaceChanged\s*\(', 'onSurfaceChanged(', s)
+          s = re.sub(r'\bsurfaceDestroyed\s*\(', 'onSurfaceDestroyed(', s)
+
+          p.write_text(s)
+          print("Updated wallpaper surface callbacks.")
+          PY
+
+          grep -nE 'class VideoEngine|onSurfaceCreated|onSurfaceChanged|onSurfaceDestroyed' "$FILE"
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -42,10 +74,7 @@ jobs:
       - name: Build APK
         run: |
           set -e
-
-          echo "Searching for Android Gradle project..."
-
-          PROJECT_DIR=$(find project -type f -name settings.gradle -o -name settings.gradle.kts | head -n 1 | xargs -r dirname)
+          PROJECT_DIR=$(find project -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit | xargs -r dirname)
 
           if [ -z "$PROJECT_DIR" ]; then
             PROJECT_DIR="project/MyLiveWallpaper"
@@ -53,7 +82,6 @@ jobs:
 
           echo "Project directory: $PROJECT_DIR"
           ls -la "$PROJECT_DIR"
-
           cd "$PROJECT_DIR"
 
           if [ -f "./gradlew" ]; then
