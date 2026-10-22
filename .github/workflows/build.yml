@@ -39,12 +39,21 @@ jobs:
           p = pathlib.Path(sys.argv[1])
           s = p.read_text()
 
+          # WallpaperService.Engine manages its own surface callbacks.
           s = re.sub(
               r'extends\s+Engine\s+implements\s+SurfaceHolder\.Callback',
               'extends Engine',
               s
           )
 
+          # Remove explicit callback registration on Engine.
+          s = re.sub(
+              r'(?m)^\s*getSurfaceHolder\(\)\.addCallback\(this\)\s*;?\s*$',
+              '',
+              s
+          )
+
+          # Convert legacy callback method names to Engine callback names.
           s = re.sub(r'\bsurfaceCreated\s*\(', 'onSurfaceCreated(', s)
           s = re.sub(r'\bsurfaceChanged\s*\(', 'onSurfaceChanged(', s)
           s = re.sub(r'\bsurfaceDestroyed\s*\(', 'onSurfaceDestroyed(', s)
@@ -53,7 +62,7 @@ jobs:
           print("Updated wallpaper surface callbacks.")
           PY
 
-          grep -nE 'class VideoEngine|onSurfaceCreated|onSurfaceChanged|onSurfaceDestroyed' "$FILE"
+          grep -nE 'class VideoEngine|addCallback|onSurfaceCreated|onSurfaceChanged|onSurfaceDestroyed' "$FILE"
 
       - name: Set up Java
         uses: actions/setup-java@v5
