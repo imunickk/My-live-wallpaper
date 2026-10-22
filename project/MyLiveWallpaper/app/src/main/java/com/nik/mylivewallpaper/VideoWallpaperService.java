@@ -5,10 +5,13 @@ import android.view.SurfaceHolder;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.content.SharedPreferences;
+import android.util.Log;
 
 import java.io.IOException;
 
 public class VideoWallpaperService extends WallpaperService {
+
+    private static final String TAG = "VideoWallpaperService";
 
     @Override
     public Engine onCreateEngine() {
@@ -20,6 +23,8 @@ public class VideoWallpaperService extends WallpaperService {
         private MediaPlayer player;
         private boolean visible;
         private boolean surfaceReady;
+        private boolean prepared;
+        private SurfaceHolder currentHolder;
 
         @Override
         public void onVisibilityChanged(boolean isVisible) {
@@ -35,6 +40,7 @@ public class VideoWallpaperService extends WallpaperService {
         @Override
         public void onSurfaceCreated(SurfaceHolder holder) {
             super.onSurfaceCreated(holder);
+            currentHolder = holder;
             surfaceReady = true;
             startPlayer();
         }
@@ -46,21 +52,42 @@ public class VideoWallpaperService extends WallpaperService {
                 int width,
                 int height) {
             super.onSurfaceChanged(holder, format, width, height);
+            currentHolder = holder;
 
             if (player != null) {
-                player.setDisplay(holder);
+                try {
+                    player.setDisplay(holder);
+                } catch (IllegalStateException e) {
+                    Log.e(TAG, "Unable to attach wallpaper surface", e);
+                }
             }
         }
 
         @Override
         public void onSurfaceDestroyed(SurfaceHolder holder) {
-            super.onSurfaceDestroyed(holder);
             surfaceReady = false;
+            currentHolder = null;
             releasePlayer();
+            super.onSurfaceDestroyed(holder);
         }
 
         private void startPlayer() {
-            if (!visible || !surfaceReady || player != null) {
+            if (!visible || !surfaceReady || currentHolder == null) {
+                return;
+            }
+
+            if (player != null) {
+                if (prepared) {
+                    try {
+                        player.setDisplay(currentHolder);
+                        if (!player.isPlaying()) {
+                            player.start();
+                        }
+                    } catch (IllegalStateException e) {
+                        Log.e(TAG, "Unable to restart video", e);
+                        releasePlayer();
+                    }
+                }
                 return;
             }
 
@@ -69,54 +96,85 @@ public class VideoWallpaperService extends WallpaperService {
 
             String chosen = prefs.getString("video_uri", null);
 
-            if (chosen == null) {
+            if (chosen == null || chosen.isEmpty()) {
+                Log.e(TAG, "No video URI saved");
                 return;
             }
 
             try {
-                player = new MediaPlayer();
-                player.setDataSource(
+                MediaPlayer newPlayer = new MediaPlayer();
+                player = newPlayer;
+                prepared = false;
+
+                newPlayer.setDataSource(
                         VideoWallpaperService.this,
                         Uri.parse(chosen));
 
-                player.setDisplay(getSurfaceHolder());
-                player.setLooping(true);
-                player.setVolume(0f, 0f);
+                newPlayer.setDisplay(currentHolder);
+                newPlayer.setLooping(true);
+                newPlayer.setVolume(0f, 0f);
 
-                player.setOnPreparedListener(mp -> {
-                    if (player == mp && visible && surfaceReady) {
-                        mp.start();
+                newPlayer.setOnPreparedListener(mp -> {
+                    if (player != mp) {
+                        mp.release();
+                        return;
+                    }
+
+                    prepared = true;
+
+                    if (visible && surfaceReady && currentHolder != null) {
+                        try {
+                            mp.setDisplay(currentHolder);
+                            mp.start();
+                        } catch (IllegalStateException e) {
+                            Log.e(TAG, "Unable to start prepared video", e);
+                            releasePlayer();
+                        }
                     }
                 });
 
-                player.setOnErrorListener((mp, what, extra) -> {
+                newPlayer.setOnErrorListener((mp, what, extra) -> {
+                    Log.e(TAG, "MediaPlayer error: " + what + ", " + extra);
                     releasePlayer();
                     return true;
                 });
 
-                player.prepareAsync();
+                newPlayer.prepareAsync();
 
-            } catch (IOException | IllegalArgumentException e) {
+            } catch (IOException | IllegalArgumentException
+                     | IllegalStateException e) {
+                Log.e(TAG, "Unable to load selected video", e);
                 releasePlayer();
             }
         }
 
         private void pausePlayer() {
-            if (player != null && player.isPlaying()) {
-                player.pause();
+            if (player != null && prepared) {
+                try {
+                    if (player.isPlaying()) {
+                        player.pause();
+                    }
+                } catch (IllegalStateException e) {
+                    Log.e(TAG, "Unable to pause video", e);
+                    releasePlayer();
+                }
             }
         }
 
         private void releasePlayer() {
-            if (player != null) {
-                try {
-                    player.setOnPreparedListener(null);
-                    player.setOnErrorListener(null);
-                    player.release();
-                } catch (Exception ignored) {
-                }
+            MediaPlayer oldPlayer = player;
+            player = null;
+            prepared = false;
 
-                player = null;
+            if (oldPlayer != null) {
+                try {
+                    oldPlayer.setOnPreparedListener(null);
+                    oldPlayer.setOnErrorListener(null);
+                    oldPlayer.setDisplay(null);
+                    oldPlayer.release();
+                } catch (Exception e) {
+                    Log.w(TAG, "Error releasing MediaPlayer", e);
+                }
             }
         }
 
@@ -124,6 +182,7 @@ public class VideoWallpaperService extends WallpaperService {
         public void onDestroy() {
             visible = false;
             surfaceReady = false;
+            currentHolder = null;
             releasePlayer();
             super.onDestroy();
         }
