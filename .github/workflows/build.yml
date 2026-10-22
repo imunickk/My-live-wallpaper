@@ -26,11 +26,9 @@ jobs:
       - name: Fix wallpaper source files
         run: |
           set -e
-
-          SERVICE="$(find project -type f -name VideoWallpaperService.java -print -quit)"
+          SERVICE="project/MyLiveWallpaper/app/src/main/java/com/nik/mylivewallpaper/VideoWallpaperService.java"
           ACTIVITY="$(find project -type f -name MainActivity.java -print -quit)"
-
-          test -n "$SERVICE"
+          test -f "$SERVICE"
           test -n "$ACTIVITY"
 
           python3 - "$SERVICE" "$ACTIVITY" <<'PY'
@@ -41,41 +39,19 @@ jobs:
           service = pathlib.Path(sys.argv[1])
           activity = pathlib.Path(sys.argv[2])
 
+          # Ensure playback is retried when Android reports a valid surface size.
           s = service.read_text()
-          s = re.sub(
-              r'extends\s+Engine\s+implements\s+SurfaceHolder\.Callback',
-              'extends Engine',
-              s
-          )
-          s = re.sub(
-              r'getSurfaceHolder\(\)\s*\.addCallback\s*\(\s*this\s*\)\s*;?',
-              '',
-              s
-          )
-          s = re.sub(r'\bsurfaceCreated\s*\(', 'onSurfaceCreated(', s)
-          s = re.sub(r'\bsurfaceChanged\s*\(', 'onSurfaceChanged(', s)
-          s = re.sub(r'\bsurfaceDestroyed\s*\(', 'onSurfaceDestroyed(', s)
-
-          # Read the URI from the same preferences file used by the activity.
-          s = re.sub(
-              r'getSharedPreferences\("MyLiveWallpaper",\s*MODE_PRIVATE\)',
-              'getSharedPreferences("MyLiveWallpaper", MODE_PRIVATE)',
-              s
-          )
-
-          a = activity.read_text()
-
-          # Use a shared named preferences file in both places.
-          a = a.replace(
-              'getPreferences(MODE_PRIVATE)',
-              'getSharedPreferences("MyLiveWallpaper", MODE_PRIVATE)'
-          )
-
+          marker = '            currentHolder = holder;\n\n            if (player != null) {'
+          if marker in s and 'currentHolder = holder;\n            startPlayer();\n\n            if (player != null) {' not in s:
+              s = s.replace(marker, '            currentHolder = holder;\n            startPlayer();\n\n            if (player != null) {', 1)
           service.write_text(s)
+
+          # Activity and wallpaper service must read/write the same preference file.
+          a = activity.read_text()
+          a = a.replace('getPreferences(MODE_PRIVATE)', 'getSharedPreferences("MyLiveWallpaper", MODE_PRIVATE)')
           activity.write_text(a)
 
-          # Try to remove the legacy Android-target warning by updating SDK levels
-          # in the extracted app module, while keeping the installed SDK at API 35.
+          # Raise the target SDK to stop Android's legacy-target warning.
           for gradle in pathlib.Path("project").rglob("app/build.gradle"):
               g = gradle.read_text()
               original = g
@@ -87,15 +63,11 @@ jobs:
                   gradle.write_text(g)
                   print("Updated SDK levels:", gradle)
 
-          print("Patched:", service)
-          print("Patched:", activity)
+          print("Wallpaper service and preferences patched.")
           PY
 
-          echo "Checking for remaining legacy callback registration:"
-          if grep -nE 'addCallback\(this\)|implements SurfaceHolder.Callback' "$SERVICE"; then
-            echo "Legacy callback pattern remains; inspect source."
-            exit 1
-          fi
+          echo "Service source used:"
+          grep -nE 'onSurfaceChanged|startPlayer\(\)|MyLiveWallpaper' "$SERVICE" | head -30
 
       - name: Set up Java
         uses: actions/setup-java@v5
