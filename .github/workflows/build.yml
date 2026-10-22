@@ -23,51 +23,66 @@ jobs:
           mkdir -p project
           unzip -o MyLiveWallpaper-AndroidStudio-Project.zip -d project
 
-      - name: Fix VideoWallpaperService callbacks
+      - name: Fix wallpaper source files
         run: |
           set -e
-          FILE="$(find project -type f -name VideoWallpaperService.java -print -quit)"
-          test -n "$FILE"
-          echo "Fixing $FILE"
 
-          python3 - "$FILE" <<'PY'
+          SERVICE="$(find project -type f -name VideoWallpaperService.java -print -quit)"
+          ACTIVITY="$(find project -type f -name MainActivity.java -print -quit)"
+
+          test -n "$SERVICE"
+          test -n "$ACTIVITY"
+
+          python3 - "$SERVICE" "$ACTIVITY" <<'PY'
           import pathlib
           import re
           import sys
 
-          p = pathlib.Path(sys.argv[1])
-          s = p.read_text()
+          service = pathlib.Path(sys.argv[1])
+          activity = pathlib.Path(sys.argv[2])
 
-          # Engine manages its own surface lifecycle callbacks.
+          s = service.read_text()
           s = re.sub(
               r'extends\s+Engine\s+implements\s+SurfaceHolder\.Callback',
               'extends Engine',
               s
           )
-
-          # Remove addCallback(this), including when it appears
-          # inline inside the VideoEngine constructor.
           s = re.sub(
               r'getSurfaceHolder\(\)\s*\.addCallback\s*\(\s*this\s*\)\s*;?',
               '',
               s
           )
-
-          # Convert legacy SurfaceHolder.Callback method names.
           s = re.sub(r'\bsurfaceCreated\s*\(', 'onSurfaceCreated(', s)
           s = re.sub(r'\bsurfaceChanged\s*\(', 'onSurfaceChanged(', s)
           s = re.sub(r'\bsurfaceDestroyed\s*\(', 'onSurfaceDestroyed(', s)
 
-          p.write_text(s)
+          # Read the URI from the same preferences file used by the activity.
+          s = re.sub(
+              r'getSharedPreferences\("MyLiveWallpaper",\s*MODE_PRIVATE\)',
+              'getSharedPreferences("MyLiveWallpaper", MODE_PRIVATE)',
+              s
+          )
 
-          if re.search(r'getSurfaceHolder\(\)\s*\.addCallback\s*\(\s*this\s*\)', s):
-              raise SystemExit("ERROR: addCallback(this) was not removed")
+          a = activity.read_text()
 
-          print("Wallpaper callback patch completed.")
+          # Use a shared named preferences file in both places.
+          a = a.replace(
+              'getPreferences(MODE_PRIVATE)',
+              'getSharedPreferences("MyLiveWallpaper", MODE_PRIVATE)'
+          )
+
+          service.write_text(s)
+          activity.write_text(a)
+
+          print("Patched:", service)
+          print("Patched:", activity)
           PY
 
-          echo "Checking patched source:"
-          grep -nE 'class VideoEngine|addCallback|surfaceDestroyed|onSurfaceDestroyed' "$FILE" || true
+          echo "Checking for remaining legacy callback registration:"
+          if grep -nE 'addCallback\(this\)|implements SurfaceHolder.Callback' "$SERVICE"; then
+            echo "Legacy callback pattern remains; inspect source."
+            exit 1
+          fi
 
       - name: Set up Java
         uses: actions/setup-java@v5
