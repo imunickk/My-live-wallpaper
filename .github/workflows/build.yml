@@ -17,11 +17,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Preserve maintained wallpaper service
+        run: |
+          set -e
+          cp project/MyLiveWallpaper/app/src/main/java/com/nik/mylivewallpaper/VideoWallpaperService.java /tmp/VideoWallpaperService.java
+
       - name: Extract Android project ZIP
         run: |
           set -e
           mkdir -p project
           unzip -o MyLiveWallpaper-AndroidStudio-Project.zip -d project
+          cp /tmp/VideoWallpaperService.java project/MyLiveWallpaper/app/src/main/java/com/nik/mylivewallpaper/VideoWallpaperService.java
 
       - name: Fix wallpaper source files
         run: |
@@ -39,18 +45,11 @@ jobs:
           service = pathlib.Path(sys.argv[1])
           activity = pathlib.Path(sys.argv[2])
 
-          # Engine lifecycle callbacks are provided by WallpaperService.Engine.
+          # Use maintained Engine callbacks and retry when the surface dimensions arrive.
           s = service.read_text()
-          s = re.sub(r'extends\s+Engine\s+implements\s+SurfaceHolder\.Callback', 'extends Engine', s)
-          s = re.sub(r'getSurfaceHolder\(\)\s*\.addCallback\s*\(\s*this\s*\)\s*;?', '', s)
-          s = re.sub(r'\bsurfaceCreated\s*\(', 'onSurfaceCreated(', s)
-          s = re.sub(r'\bsurfaceChanged\s*\(', 'onSurfaceChanged(', s)
-          s = re.sub(r'\bsurfaceDestroyed\s*\(', 'onSurfaceDestroyed(', s)
-
-          # Ensure playback retries after Android supplies surface dimensions.
-          marker = '            currentHolder = holder;\n\n            if (player != null) {'
+          marker = '            currentHolder = holder;\\n\\n            if (player != null) {'
           if marker in s:
-              s = s.replace(marker, '            currentHolder = holder;\n            startPlayer();\n\n            if (player != null) {', 1)
+              s = s.replace(marker, '            currentHolder = holder;\\n            startPlayer();\\n\\n            if (player != null) {', 1)
           service.write_text(s)
 
           a = activity.read_text()
